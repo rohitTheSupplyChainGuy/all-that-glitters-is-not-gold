@@ -10,3 +10,7 @@ Acknowledgements statisticsbyjim:
 https://statisticsbyjim.com/regression/heteroscedasticity-regression/
 
 Files for the project:
+wind-mill-dataset.csv: Dataset
+allThatGlittersIsNotGold.Rmd: R-markdown file containing the source code
+allThatGlittersIsNotGold.html: HTML file containing key insights and outputs from the R-code. Can be skimmed through
+Figs folder: Contains the image files of the output from the .Rmd file
