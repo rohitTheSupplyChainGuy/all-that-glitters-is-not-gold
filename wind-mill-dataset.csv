@@ -1,4 +1,4 @@
-Location,Number of Records,Power output (MW),Wind Speed (m/s),Windmill
+Location,Number of Records,Power output (MW),Wind Speed (m s),Windmill
 A,1,0,1.096875,a1
 A,1,0.354645833,1.735069444,a10
 A,1,0.122479167,1.760138889,a11

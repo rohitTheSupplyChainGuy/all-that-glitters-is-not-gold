@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r loadpackages, warning=FALSE, message=FALSE}
-pacman::p_load(caret, data.table, ggplot2,gridExtra,ggpubr,MASS)
+pacman::p_load(caret, data.table, ggplot2,gridExtra,ggpubr,MASS,stats,mlmetrics)
 knitr::opts_chunk$set(echo = FALSE, fig.width=12, fig.height=6, fig.path = 'Figs/')
 options(digits = 3)
 ```
@@ -14,16 +14,25 @@ options(digits = 3)
 
 ```{r}
 set.seed(123)
-windPowerGenerationData <- read.csv("C:/Users/rohit/Desktop/Analytics Project/All-that-glitters-is-not-gold/wind-mill-dataset.csv")
-windPowerGenerationData.dt <- setDT(windPowerGenerationData)
+windPowerGenerationData <- read.csv("C:/Users/rohit/Desktop/Analytics Project/All-that-glitters-is-not-gold/wind-mill-dataset.csv", header = TRUE)
 
+windPowerGenerationData <- windPowerGenerationData[,-5]
+#windPowerGenerationData <- windPowerGenerationData[windPowerGenerationData$Power.output..MW. != 0,]
+trainIndex <- sample(1:nrow(windPowerGenerationData),0.7*nrow(windPowerGenerationData))
+windPowerGenerationData.train <- windPowerGenerationData[trainIndex,]
+windPowerGenerationData.test <- windPowerGenerationData[-trainIndex,]
 
-trainIndex <- sample(1:nrow(windPowerGenerationData.dt),0.7*nrow(windPowerGenerationData.dt))
-windPowerGenerationData.train <- windPowerGenerationData.dt[trainIndex,]
-windPowerGenerationData.test <- windPowerGenerationData.dt[-trainIndex,]
+windPowerGenerationData.train <- setDT(windPowerGenerationData.train)
+windPowerGenerationData.test <- setDT(windPowerGenerationData.test)
 str(windPowerGenerationData.train)
 ```
 #Insights corner: The dataset contains the speed of wind and power output across various locations. Wind speed is in meters per second and power output is in megawatts.
+
+
+```{r Summary of the training data}
+summary(windPowerGenerationData.train)
+```
+
 
 ```{r basic analysis of the data}
 plot1 <- ggplot(windPowerGenerationData.train, aes(x=windPowerGenerationData.train$Location,
@@ -52,7 +61,31 @@ grid.arrange(plot3,plot2,plot1,plot4,nrow=2,ncol=2)
 windPowerGenerationData.train <-  windPowerGenerationData.train[windPowerGenerationData.train$Power.output..MW.!= 0]
 
 ```
-#Insighs corner: With a correlation coefficient of 0.98, wind speed and power output seem to be strongly correlated. It makes sense for us to proceed with going with a linear model for our analysis.
+
+
+```{r}
+
+plot5 <- ggplot(windPowerGenerationData.train, aes(x=windPowerGenerationData.train$Power.output..MW.)) + 
+                geom_histogram(color="black", fill="white",binwidth = 5) +
+                xlab("Power Output (in MW)")
+
+plot7 <- ggplot(windPowerGenerationData.train, aes(x=windPowerGenerationData.train$Wind.Speed..m.s.)) + 
+                geom_histogram(color="black", fill="white",binwidth = 3) +
+                xlab("Wind speed (in ms)")
+
+grid.arrange(plot5,plot7,ncol=2)
+```
+
+```{r baseline model}
+baselineModel.mean <- mean(windPowerGenerationData.train$Power.output..MW.)
+
+ggplot(windPowerGenerationData.train, aes(x=windPowerGenerationData.train$Wind.Speed..m.s.,                                                 y=windPowerGenerationData.train$Power.output..MW.))+
+          geom_point()+
+          ggtitle("Baseline model with mean power output")+
+          xlab("Wind speed (in ms)") + ylab("Power output (in MW)")+
+          geom_hline(yintercept = mean(windPowerGenerationData.train$Power.output..MW.),linetype = "dashed",color  = "blue")
+```
+
 
 ```{r fitting a linear model to the data}
 powerGeneration.lm <- lm(Power.output..MW.~Wind.Speed..m.s., 
@@ -68,42 +101,139 @@ ggplot(windPowerGenerationData.train,aes(x=windPowerGenerationData.train$Wind.Sp
   geom_smooth(method = lm)
 ```
 
-#Insights corner: With an adjusted R-squared of 0.954 and low p-values, it seems we have done a good job with a simple linear model. Let us now validate if the model does not exhibit heteroscadesticity.
 
 ```{r checking the linear model further}
 par(mfrow = c(2,2))
 plot(powerGeneration.lm)
 ```
-#Insights corner: A high R-squared and low p-values of the coefficient does not necessarily mean that the linear model is good enough. What must also be investigated is the residual plots of the fitted values. As seen from the plot 1 (top left), the residuals are not homogenously distributed, they seem to be forming a pattern. This indicates the existance of heteroscadesticity, and a basic requirement for linear regression is violated. Let us try to see if transforming the dependent variable using Box-Cox is of some help to mitigate this.
+#Insights corner: A high R-squared and low p-values of the coefficient does not necessarily mean that the linear model is good enough. What must also be investigated is the residual plots of the fitted values. As seen from the plot 1 (top left), the residuals are not homogenously distributed, they seem to be forming a pattern. This indicates the existance of heteroscadesticity, and a basic requirement for linear regression is violated.
 
-```{r}
-bx <- boxcox(powerGeneration.lm,lambda = seq(-2, 2, 1/5))
+#Insights corner: An interesting point in the model built earlier is that the intercept is negative. This is a not valid scenario and is chosen to minimize the least squared residuals. Let us now try to build a model with intercept forced to zero. It implies that there would not be an any power generated if the wind isn't blowing.
+
+
+```{r fitting a linear model to the data forcing a zero intercept}
+powerGeneration.lm1 <- lm(Power.output..MW.~ 0 + Wind.Speed..m.s., 
+                         data=windPowerGenerationData.train)
+summary(powerGeneration.lm1)
 ```
+
 ```{r}
-
-windPowerGenerationData.train$Power.output..MW. <- (windPowerGenerationData.train$Power.output..MW.)^bx$x[which.max(bx$y)]
-                                                                                                     
-adjustedPowerModel.lm <-lm(Power.output..MW.~Wind.Speed..m.s., data =windPowerGenerationData.train)
-
-summary(adjustedPowerModel.lm)
+ggplot(windPowerGenerationData.train,aes(x=windPowerGenerationData.train$Wind.Speed..m.s.,
+                                         y=windPowerGenerationData.train$Power.output..MW.))+
+  geom_point()+
+  ggtitle("The model with intercept set to 0 performs even worse")+
+  xlab("Wind speed (in ms)") + ylab("Power output (in MW)")+
+  stat_smooth(method = "lm", formula = y~0+x)
 ```
-```{r}
+
+
+```{r checking the linear model further}
 par(mfrow = c(2,2))
-plot(adjustedPowerModel.lm)
+plot(powerGeneration.lm1)
+```
+#Insights corner: The effects of heteroscadesticity are more relevant when the intercept is forced to zero. This is evident from the residual v/s fitted plot where the model overpredicts initially and underpredicts with the increase in wind speed in ms. Clearly the relationship between the predictor and the response variable is not linear. Let us try building a non-linear model.
+
+
+```{r transforming the dependent variable on a logarithmic scale}
+
+ggplot(windPowerGenerationData.train,aes(x=windPowerGenerationData.train$Wind.Speed..m.s.,
+                                         y=log(windPowerGenerationData.train$Power.output..MW.)))+
+  geom_point()+
+  ggtitle("Log transforming the Power generation speed in MW")+
+  xlab("Wind speed (in ms)") + ylab("Log of Power output (in MW)")
+
+ggplot(windPowerGenerationData.train,aes(x=log(windPowerGenerationData.train$Wind.Speed..m.s.),
+                                         y=windPowerGenerationData.train$Power.output..MW.))+
+  geom_point()+
+  ggtitle("Would a quadratic equation on logarithms be of some help?")+
+  xlab("Log of Wind speed (in ms)") + ylab("Power output (in MW)")
+
+ggplot(windPowerGenerationData.train,aes(x=log(windPowerGenerationData.train$Wind.Speed..m.s.),
+                                         y=log(windPowerGenerationData.train$Power.output..MW.)))+
+  geom_point()+
+  ggtitle("Log transforming the power generation and wind speed in ms")+
+  xlab("Log of Wind speed (in ms)") + ylab("Log Power output (in MW)")
+
 ```
 
-#Insights corner: A new model was built with the dependent variable raised to the power of lambda with maximum log-likelihood obtained from Box-Cox transformation. But the new model does not seem to eliminate heteroscadesticity. Perhaps, fitting a linear model is not a good idea after all.
+```{r Building a quadratic logarithmic model}
+
+windSpeedSquared <- (log(windPowerGenerationData.train$Wind.Speed..m.s.))^2
+windPowerGenerationData.train <- cbind(windPowerGenerationData.train,windSpeedSquared)
+
+windSpeedSquared <- (log(windPowerGenerationData.test$Wind.Speed..m.s.))^2
+windPowerGenerationData.test <- cbind(windPowerGenerationData.test,windSpeedSquared)
+
+quadratic.lm <- lm(Power.output..MW.~log(Wind.Speed..m.s.)+windSpeedSquared, data = windPowerGenerationData.train)
+
+#outliers are removed
+windPowerGenerationData.train <- windPowerGenerationData.train[-c(169,156,177),]
+
+quadratic.lm <- lm(Power.output..MW.~log(Wind.Speed..m.s.)+windSpeedSquared, data = windPowerGenerationData.train)
+
+summary(quadratic.lm)
+
+#par(mfrow = c(2,2))
+plot(quadratic.lm)
+
+windPowerGenerationData.train$predictedQuadratic <-   predict(quadratic.lm)
+
+str(windPowerGenerationData.train)
+
+ggplot(windPowerGenerationData.train,aes(x=windPowerGenerationData.train$Wind.Speed..m.s.,
+                                         y=windPowerGenerationData.train$Power.output..MW.))+
+  geom_point()+
+  geom_line(aes(y = windPowerGenerationData.train$predictedQuadratic), size = 1, color = "blue")+
+  ggtitle("The quadratic model does seems to reduce the heteroscadesticity")+
+  xlab("Wind speed in ms") + ylab("Power output in MW")
+
+```
+
+#Insights corner: Are we overfitting? Let us cross-validate our dataset.
+```{r K-fold repeated cross-validation of model}
+train.control <- trainControl(method = "repeatedcv",number = 5, repeats = 4)
+
+crossValidatedModel <- train(Power.output..MW.~log(Wind.Speed..m.s.)+windSpeedSquared, data = windPowerGenerationData.train, method = "lm",trControl = train.control)
+
+crossValidatedRMSE.df <- data.frame(1:20,crossValidatedModel$resample$RMSE)
+
+ggplot(crossValidatedRMSE.df, aes(x=crossValidatedRMSE.df$X1.20, y=crossValidatedRMSE.df$crossValidatedModel.resample.RMSE))+
+          geom_line()+
+          ggtitle("RMSE of predicted power output is consistent within 1 to 1.4 MW")+
+          xlab("Cross-validation number") +
+          ylab("RMSE")
+
+```
+
+```{r Running the data on Training to check the training error}
+predictedPowerOriginal <- predict(powerGeneration.lm,windPowerGenerationData.train)
+quadratic.predict <- predict(quadratic.lm,windPowerGenerationData.train)
+
+rmse1 <- RMSE(quadratic.predict,windPowerGenerationData.train$Power.output..MW.)
+rmse2 <- RMSE(predictedPowerOriginal,windPowerGenerationData.train$Power.output..MW.)
+rmse3 <- RMSE(mean(windPowerGenerationData.train$Power.output..MW.),windPowerGenerationData.train$Power.output..MW.)
+
+```
 
 ```{r}
-predictedPowerAdjusted <- predict(adjustedPowerModel.lm,windPowerGenerationData.test)
 predictedPowerOriginal <- predict(powerGeneration.lm,windPowerGenerationData.test)
-rmse1 <- RMSE(predictedPowerAdjusted,windPowerGenerationData.test$Power.output..MW.)
-rmse2 <- RMSE(predictedPowerOriginal,windPowerGenerationData.test$Power.output..MW.)
+quadratic.predict <- predict(quadratic.lm,windPowerGenerationData.test)
 
-rmseDataTable <- data.table(var1 = c("Original model","Adjusted model"), var2 = c(rmse2,rmse1))
-names(rmseDataTable) <- c("Model type", "RMSE values")
+rmse4 <- RMSE(quadratic.predict,windPowerGenerationData.test$Power.output..MW.)
+rmse5 <- RMSE(predictedPowerOriginal,windPowerGenerationData.test$Power.output..MW.)
+rmse6 <- RMSE(mean(windPowerGenerationData.test$Power.output..MW.),windPowerGenerationData.test$Power.output..MW.)
+
+rmseDataTable <- data.table(var1 = c("Baseline model","Linear regression","Nonlinear regression"),var = c(rmse3,rmse2,rmse1),var3 = c(rmse6,rmse5,rmse4))
+names(rmseDataTable) <- c("modelType","Train RMSE values","Test RMSE values")
 rmseDataTable
-```
-#Insights corner: In fact, the adjusted model seems to be performing even worse than the original model and the original linear model is not good either. Perhaps, fitting a linear model isn't a good idea after all. I did not perform cross-validation on the training data because the model did not look good in the first place.
 
+rmse.melt <- melt(rmseDataTable, id = c("modelType"))
+
+ggplot(rmse.melt, aes(x=modelType, y=value, group=variable, color = variable))+ 
+  geom_line()+
+  geom_point(size = 4)+
+  ggtitle("Models perform almost similar on test and training dataset")+
+  ylab("RMSE values")
+```
+#Insights corner: We started with the baseline model assuming we had no information on the wind speed and therefore using the mean of power output as the base. This wasn't a good model. We then tried fitting a line through the cloud of data, the model performed well on the training data but the predictions weren't consistent. Heteroscadesticity in the residual v/s fitted plot compelled us to move towards a polynomial plot. The quadratic logarithmic plot, to some extent reduced heteroscadesticty (can't say eliminated). This model was cross-validated where it performed consistently and run on the training data. Goodness of the model was measured with its RMSE values and polynomial regression seems to be perform marginally better as compared to the linear model. The results are as tabulated above.
 
