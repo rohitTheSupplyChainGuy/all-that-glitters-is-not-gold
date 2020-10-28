@@ -127,7 +127,7 @@ ggplot(windPowerGenerationData.train,aes(x=windPowerGenerationData.train$Wind.Sp
 ```
 
 
-```{r checking the linear model further}
+```{r}
 par(mfrow = c(2,2))
 plot(powerGeneration.lm1)
 ```
